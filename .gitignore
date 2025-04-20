@@ -1,0 +1,6 @@
+output/0_A_bird_with_red_wings/attn_map0.png
+__pycache__/
+*.png
+*.pth
+data/*
+.DS_Store
