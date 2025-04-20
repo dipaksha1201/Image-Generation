@@ -124,9 +124,11 @@ def get_imgs(img_path, imsize, bbox=None,
     if cfg.GAN.B_DCGAN:
         ret = [normalize(img)]
     else:
-        for i in range(cfg.TREE.BRANCH_NUM):
+        # Make sure we don't try to access indices beyond what's available
+        branch_num = min(cfg.TREE.BRANCH_NUM, len(imsize))
+        for i in range(branch_num):
             # print(imsize[i])
-            if i < (cfg.TREE.BRANCH_NUM - 1):
+            if i < (branch_num - 1):
                 re_img = transforms.Resize(imsize[i])(img)
             else:
                 re_img = img

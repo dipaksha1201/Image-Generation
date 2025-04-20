@@ -4,43 +4,56 @@ import torch.utils.data
 import torchvision.transforms as transforms
 from cfg import cfg
 from dataset import TextDataset
-from trainer import condGANTrainer
+from trainer import condGANTrainer 
+from trainer_contrastive import ContrastiveGANTrainer
 import argparse
 import numpy as np
+from torch.utils.data import DataLoader
+from contrastive_encoders import MateBatchSampler
 
 
-def load_data():
+def load_data(split='train', shuffle=True, use_mate_sampler=False):
     """
-    Load data using dataset.py.
-    Returns a dataloader and dataset information.
-    """
-    split_dir, bshuffle = 'train', True
-    if not cfg.TRAIN.FLAG:
-        # bshuffle = False
-        split_dir = 'test'
+    Returns (dataloader, dataset).
 
-    # Get data loader
+    If `use_mate_sampler` is True the loader will yield 2×BATCH_SIZE
+    items per iteration: N anchors + N mates.
+    """
+    # --- dataset stays exactly the same ----------------------------------
     imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM - 1))
     image_transform = transforms.Compose([
         transforms.Resize(int(imsize * 76 / 64)),
         transforms.RandomCrop(imsize),
-        transforms.RandomHorizontalFlip()])
-    
-    dataset = TextDataset(cfg.DATA_DIR, split_dir,
+        transforms.RandomHorizontalFlip()
+    ])
+
+    dataset = TextDataset(cfg.DATA_DIR, split,
                           base_size=cfg.TREE.BASE_SIZE,
                           transform=image_transform)
-    
-    print("Dataset info:")
+
+    # --- diagnostics (unchanged) ----------------------------------------
     print(f"n_words: {dataset.n_words}")
     print(f"embeddings_num: {dataset.embeddings_num}")
-    print(f"Number of filenames: {len(dataset.filenames)}")
-    print(f"Number of captions: {len(dataset.captions)}")
-    print(f"First few filenames: {dataset.filenames[:3] if dataset.filenames else 'None'}")
-    
-    dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=cfg.TRAIN.BATCH_SIZE,
-        drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
-    
+    print(f"# images (filenames): {len(dataset.filenames)}")
+    print(f"# caption sentences : {len(dataset.captions)}")
+    print("First 3 image keys  :", dataset.filenames[:3])
+
+    # --- choose loader strategy -----------------------------------------
+    if use_mate_sampler:
+        # N anchors per batch  → loader yields 2N samples
+        anchor_bs   = cfg.TRAIN.BATCH_SIZE
+        batch_sampler = MateBatchSampler(dataset, batch_size=anchor_bs)
+        dataloader = DataLoader(dataset,
+                                batch_sampler=batch_sampler,
+                                num_workers=int(cfg.WORKERS))
+    else:
+        # classic loader (same as before)
+        dataloader = DataLoader(dataset,
+                                batch_size=cfg.TRAIN.BATCH_SIZE,
+                                shuffle=shuffle,
+                                drop_last=True,
+                                num_workers=int(cfg.WORKERS))
+
     return dataloader, dataset
 
 def parse_args():
@@ -108,15 +121,47 @@ def main():
         os.makedirs(output_dir)
     
     try:
-        # Load data
+        # Load data with detailed debugging
         print("Loading data...")
-        dataloader, dataset = load_data()
-        print(f"Successfully loaded dataset with {len(dataset)} samples")
-        print(f"Dataloader has {len(dataloader)} batches")
+        try:
+            if args.mode == 'train':
+                print("Loading training data with use_mate_sampler=True")
+                dataloader, dataset = load_data(split='train', shuffle=True, use_mate_sampler=True)
+            else:
+                print("Loading test data with use_mate_sampler=True")
+                dataloader, dataset = load_data(split='test', shuffle=False, use_mate_sampler=True)
+            print(f"Successfully loaded dataset with {len(dataset)} samples")
+            print(f"Dataloader has {len(dataloader)} batches")
+            print(f"Dataset type: {type(dataset)}, Dataloader type: {type(dataloader)}")
+            
+            # Test iteration through dataloader
+            print("Testing dataloader iteration...")
+            data_iter = iter(dataloader)
+            print("Getting first batch...")
+            first_batch = next(data_iter)
+            print(f"First batch type: {type(first_batch)}")
+            if isinstance(first_batch, dict):
+                print(f"First batch keys: {first_batch.keys()}")
+            elif isinstance(first_batch, (list, tuple)):
+                print(f"First batch length: {len(first_batch)}")
+                print(f"First batch element types: {[type(item) for item in first_batch]}")
+        except Exception as e:
+            print(f"Error during data loading/validation: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         
         # Initialize trainer
         print("Initializing trainer...")
-        trainer = condGANTrainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword)
+        try:
+            print(f"Creating trainer with dataset.n_words={dataset.n_words}")
+            trainer = ContrastiveGANTrainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword)
+            print("Trainer initialized successfully")
+        except Exception as e:
+            print(f"Error during trainer initialization: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         
         # Train or sample based on mode
         if args.mode == 'train':

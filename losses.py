@@ -23,20 +23,18 @@ def sent_loss(cnn_code, rnn_code, labels, class_ids,
     # that come from the same class as the real sample ###
     masks = []
     if class_ids is not None:
+        # Ensure class_ids is a tensor
+        if not isinstance(class_ids, torch.Tensor):
+            class_ids = torch.tensor(class_ids, device=cnn_code.device)
+        
+        # Create masks directly with tensor operations
+        masks = torch.zeros(batch_size, batch_size, dtype=torch.bool, device=class_ids.device)
         for i in range(batch_size):
-            mask = (class_ids == class_ids[i]).astype(np.uint8)
-            mask[i] = 0
-            masks.append(mask.reshape((1, -1)))
-        masks = np.concatenate(masks, 0)
-        # masks: batch_size x batch_size
-        # Convert to BoolTensor instead of ByteTensor for newer PyTorch compatibility
-        masks = torch.BoolTensor(masks)
-        # Check for both CUDA and MPS (Apple Silicon)
-        if cfg.CUDA:
-            if hasattr(torch, 'mps') and torch.backends.mps.is_available():
-                masks = masks.to('mps')
-            elif torch.cuda.is_available():
-                masks = masks.cuda()
+            # Find all samples from the same class
+            same_class = (class_ids == class_ids[i])
+            # Exclude the current sample
+            same_class[i] = False
+            masks[i] = same_class
 
     # --> seq_len x batch_size x nef
     if cnn_code.dim() == 2:

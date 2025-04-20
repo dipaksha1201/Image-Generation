@@ -26,6 +26,11 @@ cfg.TRAIN.DISCRIMINATOR_LR = 0.0002
 cfg.TRAIN.GENERATOR_LR = 0.0002
 cfg.TRAIN.B_NET_D = True
 
+# Supervised contrastive learning config
+cfg.TRAIN.SUPCON = edict()
+cfg.TRAIN.SUPCON.LAMBDA = 1
+cfg.TRAIN.SUPCON.TAU = 0.7
+
 # Loss function smoothing parameters
 cfg.TRAIN.SMOOTH = edict()
 cfg.TRAIN.SMOOTH.GAMMA1 = 5.0  # Attention smoothing factor
